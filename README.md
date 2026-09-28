@@ -1,0 +1,1 @@
+EMRIA Clean Shop V3 — original layout with compact commerce structure, editorial grid, asymmetric story section, and EMRIA visual identity. Upload contents to the test repository and let Vercel redeploy.
