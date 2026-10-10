@@ -1,0 +1,11 @@
+.env
+config.local.json
+journal/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+STOP
+STOP.txt
+SELL_ALL
+SELL_ALL.txt

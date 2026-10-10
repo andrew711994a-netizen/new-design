@@ -1,0 +1,177 @@
+{
+  "mode": "paper",
+
+  "feed": {
+    "url": "wss://pumpportal.fun/api/data",
+    "sample_pct": 30,
+    "max_data_sol_per_day": 0.05,
+    "max_watching": 60,
+    "watch_seconds": 300,
+    "drop_quiet_after_s": 45,
+    "drop_quiet_below_net_sol": 1.0,
+    "record_ticks": true
+  },
+
+  "metadata": {
+    "fetch": true,
+    "timeout_s": 3.0,
+    "workers": 6
+  },
+
+  "prefilter": {
+    "pools": ["pump"],
+    "min_dev_buy_sol": 0.0,
+    "max_dev_buy_sol": 5.0,
+    "max_dev_pct": 15,
+    "max_tokens_per_creator_24h": 3,
+    "require_socials": false,
+    "blocked_words": ["test", "rug", "scam", "honeypot"]
+  },
+
+  "costs": {
+    "curve_fee_pct": 1.25,
+    "portal_fee_pct": 0.5,
+    "priority_fee_sol": 0.0005,
+    "base_fee_sol": 0.000005,
+    "token_account_rent_sol": 0.00203928,
+    "close_token_accounts": true,
+    "latency_ms": 1500,
+    "buy_slippage_pct": 15,
+    "sell_slippage_pct": 30,
+    "migration_exit_haircut_pct": 10,
+    "data_cost_sol_per_10k_trades": 0.01
+  },
+
+  "strategies": [
+    {
+      "name": "snipe_social",
+      "about": "Αγορά αμέσως μόλις βγει, αν έχει Telegram/X και λογικό αρχικό αγοραστή (dev)",
+      "enabled": true,
+      "trade_sol": 0.1,
+      "max_open": 5,
+      "entry": {
+        "max_age_s": 8,
+        "require_socials": true,
+        "min_dev_buy_sol": 0.2,
+        "max_dev_buy_sol": 2.5,
+        "max_dev_pct": 9
+      },
+      "exit": {
+        "stop_loss_pct": 35,
+        "take_profit_pct": 100,
+        "take_profit_sell_frac": 0.5,
+        "trail_activate_pct": 60,
+        "trailing_stop_pct": 35,
+        "time_stop_s": 180,
+        "time_stop_min_gain_pct": 15,
+        "max_hold_s": 1200,
+        "inactivity_s": 60
+      }
+    },
+    {
+      "name": "momentum_early",
+      "about": "Περιμένει τα πρώτα δευτερόλεπτα και αγοράζει μόνο αν μπαίνουν πολλοί πραγματικοί αγοραστές",
+      "enabled": true,
+      "trade_sol": 0.1,
+      "max_open": 5,
+      "entry": {
+        "min_age_s": 5,
+        "max_age_s": 90,
+        "min_unique_buyers": 8,
+        "min_buyer_sol": 0.05,
+        "min_net_sol": 4,
+        "min_recent_net_sol": 0.5,
+        "recent_window_s": 15,
+        "min_buy_sell_ratio": 2,
+        "min_mcap_sol": 33,
+        "max_mcap_sol": 70,
+        "max_dev_pct": 10,
+        "max_top_holder_pct": 8
+      },
+      "exit": {
+        "stop_loss_pct": 30,
+        "take_profit_pct": 80,
+        "take_profit_sell_frac": 0.5,
+        "trail_activate_pct": 40,
+        "trailing_stop_pct": 30,
+        "time_stop_s": 240,
+        "time_stop_min_gain_pct": 10,
+        "max_hold_s": 1800,
+        "inactivity_s": 90
+      }
+    },
+    {
+      "name": "momentum_strong",
+      "about": "Μπαίνει αργότερα, μόνο σε coins με ισχυρή και διάχυτη ζήτηση",
+      "enabled": true,
+      "trade_sol": 0.1,
+      "max_open": 5,
+      "entry": {
+        "min_age_s": 30,
+        "max_age_s": 300,
+        "min_unique_buyers": 25,
+        "min_buyer_sol": 0.05,
+        "min_net_sol": 12,
+        "min_recent_net_sol": 1,
+        "recent_window_s": 20,
+        "min_buy_sell_ratio": 1.5,
+        "min_mcap_sol": 55,
+        "max_mcap_sol": 150,
+        "max_dev_pct": 8,
+        "max_top_holder_pct": 6
+      },
+      "exit": {
+        "stop_loss_pct": 25,
+        "take_profit_pct": 60,
+        "take_profit_sell_frac": 0.5,
+        "trail_activate_pct": 30,
+        "trailing_stop_pct": 25,
+        "time_stop_s": 300,
+        "time_stop_min_gain_pct": 10,
+        "max_hold_s": 2700,
+        "inactivity_s": 120,
+        "exit_mcap_sol": 380
+      }
+    },
+    {
+      "name": "baseline_all",
+      "about": "Μέτρο σύγκρισης: αγοράζει ό,τι παρακολουθεί στα 20″ χωρίς φίλτρα. Αν οι άλλες δεν το κερδίζουν, τα φίλτρα δεν προσφέρουν τίποτα",
+      "enabled": true,
+      "trade_sol": 0.1,
+      "max_open": 10,
+      "entry": {
+        "min_age_s": 20,
+        "max_age_s": 25
+      },
+      "exit": {
+        "stop_loss_pct": 30,
+        "take_profit_pct": 80,
+        "take_profit_sell_frac": 0.5,
+        "trail_activate_pct": 40,
+        "trailing_stop_pct": 30,
+        "time_stop_s": 240,
+        "time_stop_min_gain_pct": 10,
+        "max_hold_s": 1800,
+        "inactivity_s": 90
+      }
+    }
+  ],
+
+  "live": {
+    "strategy": "momentum_early",
+    "broker": "local",
+    "trade_sol": 0.05,
+    "max_open_positions": 2,
+    "max_trades_per_day": 20,
+    "daily_loss_limit_sol": 0.2,
+    "max_wallet_sol": 1.5,
+    "min_reserve_sol": 0.03,
+    "max_consecutive_errors": 3,
+    "sell_on_shutdown": true
+  },
+
+  "notify": {
+    "paper_summary_every_hours": 12,
+    "live_trades": true
+  }
+}
