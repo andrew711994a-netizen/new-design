@@ -17,6 +17,7 @@ from .feed import PumpPortalFeed, explain_connect_error, is_pumpportal, ssl_cont
 from .journal import Journal
 from .metadata import fetch_metadata
 from .notify import notify
+from .price import fmt_eur, sol_eur
 from .report import status_text
 
 
@@ -169,6 +170,11 @@ async def run(cfg: dict) -> None:
                 log(f"PumpPortal: {json.dumps(msg, ensure_ascii=False)[:300]}")
         await apply_actions()
 
+    price = {"eur": None, "t": 0.0}
+
+    async def refresh_price() -> None:
+        price["eur"] = await loop.run_in_executor(None, sol_eur) or price["eur"]
+
     async def ticker() -> None:
         last_status = last_summary = time.time()
         summary_every = float(cfg.get("notify", {}).get("paper_summary_every_hours", 12)) * 3600
@@ -187,10 +193,13 @@ async def run(cfg: dict) -> None:
                 log("Ροή: κανένα μήνυμα για 2′, επανασύνδεση.")
                 feed.last_msg_t = t
                 spawn(feed.ws.close())
+            if t - price["t"] >= 600:
+                price["t"] = t
+                spawn(refresh_price())
             if t - last_status >= 60:
                 last_status = t
                 journal.flush()
-                text = status_text(engine, cfg, started, t, feed.connected.is_set())
+                text = status_text(engine, cfg, started, t, feed.connected.is_set(), price["eur"])
                 journal.write_text("status.md", text)
                 s = engine.summary()
                 log(f"Παρακολουθούνται {engine.watching_count()} · νέα {engine.stats['νέα tokens']} · "
@@ -198,7 +207,8 @@ async def run(cfg: dict) -> None:
             if not live and t - last_summary >= summary_every:
                 last_summary = t
                 s = engine.summary()
-                body = "\n".join(f"{r['variant']}: {r['closed']} συναλλαγές, {r['pnl_sol']:+.3f} SOL" for r in s)
+                body = "\n".join(f"{r['variant']}: {r['closed']} συναλλαγές, {r['pnl_sol']:+.3f} SOL "
+                                 f"({fmt_eur(r['pnl_sol'], price['eur'])})" for r in s)
                 loop.run_in_executor(None, notify, "Meme bot (εικονικά) · σύνοψη", body)
 
     rt = round_trip_cost_pct(float(live_cfg.get("trade_sol", 0.05)) if live else 0.1, costs)
@@ -225,7 +235,7 @@ async def run(cfg: dict) -> None:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 log("Δεν πρόλαβα να πουλήσω όλες τις θέσεις· θα τις συνεχίσω στην επόμενη εκκίνηση.")
         engine.shutdown_paper(time.time())
-        journal.write_text("status.md", status_text(engine, cfg, started, time.time(), False))
+        journal.write_text("status.md", status_text(engine, cfg, started, time.time(), False, price["eur"]))
         if broker:
             journal.save_json("live_positions.json", engine.live_state())
         journal.close()

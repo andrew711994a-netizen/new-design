@@ -50,7 +50,8 @@ def main() -> None:
         rows = [r for r in read_trades(JOURNAL / "trades.csv")
                 if (not args.since or r["closed_at"][:10] >= args.since)
                 and (not args.until or r["closed_at"][:10] <= args.until)]
-        text = build_report(rows)
+        from .price import sol_eur
+        text = build_report(rows, eur=sol_eur())
         (JOURNAL / "report.md").parent.mkdir(exist_ok=True)
         (JOURNAL / "report.md").write_text(text, encoding="utf-8")
         print(text)

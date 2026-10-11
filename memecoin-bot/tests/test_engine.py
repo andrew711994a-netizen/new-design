@@ -265,3 +265,20 @@ def test_sampling_and_data_budget():
     crowd(drv, mkt, "A", 101, 0.1)
     drv.send(mkt.create("B", dev="D2"))
     assert "B" not in eng.tokens and eng.stats["απόρριψη: όριο κόστους δεδομένων ημέρας"] == 1
+
+
+def test_report_in_euros_and_peak_capital():
+    from memebot.report import peak_capital
+    rows = [
+        {"opened_at": "2026-10-11 10:00:00", "closed_at": "2026-10-11 10:05:00", "cost_sol": 0.1},
+        {"opened_at": "2026-10-11 10:01:00", "closed_at": "2026-10-11 10:02:00", "cost_sol": 0.1},
+        {"opened_at": "2026-10-11 10:02:00", "closed_at": "2026-10-11 10:03:00", "cost_sol": 0.1},
+        {"opened_at": "2026-10-11 11:00:00", "closed_at": "2026-10-11 11:01:00", "cost_sol": 0.1, "status": "failed"},
+    ]
+    assert peak_capital(rows) == pytest.approx(0.2)      # το δεύτερο κλείνει τη στιγμή που ανοίγει το τρίτο
+    full = [dict(r, variant="v", mode="paper", status=r.get("status", "ok"), pnl_sol=-0.01, pnl_pct=-10.0,
+                 peak_multiple=1.1, hold_s=60, exit_reason="stop-loss") for r in rows]
+    text = build_report(full, eur=100.0)
+    assert "Ζημιά -0.0400 SOL ≈ -4.00 €" in text and "κεφάλαιο έως 0.20 SOL ≈ 20 €" in text
+    assert "Σε απλά λόγια (τιμή SOL ≈ 100 €)" in text
+    assert "≈" not in build_report(full, eur=None).split("## Λεπτομέρειες")[0]
