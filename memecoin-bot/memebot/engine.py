@@ -285,6 +285,8 @@ class Engine:
             dq.popleft()
         if tok.pool not in pf.get("pools", ["pump"]):
             return False, "άλλη πλατφόρμα"
+        if tok.price <= 0:                   # χωρίς αποθέματα καμπύλης δεν μπορεί να αποτιμηθεί
+            return False, "χωρίς τιμή"
         if not float(pf.get("min_dev_buy_sol", 0)) <= tok.dev_buy_sol <= float(pf.get("max_dev_buy_sol", 1e9)):
             return False, "αγορά δημιουργού"
         if tok.dev_pct() > float(pf.get("max_dev_pct", 100)):

@@ -297,3 +297,10 @@ def test_forced_closes_are_left_out_of_the_report():
     assert "Δεν υπάρχουν ακόμα κλεισμένες συναλλαγές" in text and "2 εικονικές θέσεις" in text
     live_row = dict(legacy, mode="live", variant="momentum_early@live")   # οι πραγματικές πωλήσεις μετράνε πάντα
     assert "1 αγορές" in build_report([live_row, legacy])
+
+
+def test_tokens_without_curve_reserves_are_not_watched():
+    eng = Engine(base_config(), Journal(None))
+    eng.on_create({"txType": "create", "mint": "NOPRICE", "traderPublicKey": "D", "name": "x", "symbol": "X",
+                   "marketCapSol": 0}, 1.0)
+    assert "NOPRICE" not in eng.tokens and eng.stats["απόρριψη: χωρίς τιμή"] == 1
