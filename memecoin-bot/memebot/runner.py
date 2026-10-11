@@ -202,6 +202,8 @@ async def run(cfg: dict) -> None:
                 loop.run_in_executor(None, notify, "Meme bot (εικονικά) · σύνοψη", body)
 
     rt = round_trip_cost_pct(float(live_cfg.get("trade_sol", 0.05)) if live else 0.1, costs)
+    from . import __version__
+    log(f"Έκδοση bot: {__version__}")
     log(f"Ξεκινώ σε λειτουργία {'LIVE (πραγματικά χρήματα)' if live else 'PAPER (εικονικά)'} · "
         f"στρατηγικές: {', '.join(engine.variants)} · κόστος αγοράς+πώλησης ≈ {rt:.1f}%")
     if live:
@@ -235,6 +237,8 @@ async def check(cfg: dict) -> None:
     """Γρήγορος έλεγχος εγκατάστασης: ροή, κλειδί API, metadata, ειδοποιήσεις, (και πορτοφόλι στο live)."""
     import websockets
 
+    from . import __version__
+    print(f"Έκδοση bot: {__version__}")
     url = PumpPortalFeed(cfg["feed"]["url"], feed_key(cfg)).url
     ok = True
     print(f"1) Σύνδεση στη ροή {cfg['feed']['url']} ...")
