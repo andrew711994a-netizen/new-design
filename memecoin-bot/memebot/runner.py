@@ -134,6 +134,9 @@ async def run(cfg: dict) -> None:
         if a.subscribe:
             await feed.subscribe(a.subscribe)
         if a.unsubscribe:
+            now = time.time()
+            for m in a.unsubscribe:
+                journal.tick("u", {"mint": m}, now)
             await feed.unsubscribe(a.unsubscribe)
         for mint, uri in a.meta:
             if len(meta_inflight) < workers * 4:

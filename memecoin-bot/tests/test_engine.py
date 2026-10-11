@@ -304,3 +304,29 @@ def test_tokens_without_curve_reserves_are_not_watched():
     eng.on_create({"txType": "create", "mint": "NOPRICE", "traderPublicKey": "D", "name": "x", "symbol": "X",
                    "marketCapSol": 0}, 1.0)
     assert "NOPRICE" not in eng.tokens and eng.stats["απόρριψη: χωρίς τιμή"] == 1
+
+
+def test_fees_are_recorded_and_explained(tmp_path):
+    import csv as _csv
+    old = tmp_path / "trades.csv"                                  # αρχείο από παλιότερη έκδοση, χωρίς fees_sol
+    old.write_text("closed_at,variant,status,pnl_sol\n2026-10-11 10:00:00,v,ok,-0.01\n", encoding="utf-8")
+    j = Journal(tmp_path)
+    eng, mkt = Engine(base_config("momentum_early"), j), Market()
+    drv = Driver(eng)
+    drv.send(mkt.create("FEE"))
+    crowd(drv, mkt, "FEE", 10, 0.7)
+    drv.advance(3)
+    drv.at(5, mkt.sell("FEE", "DEV"))
+    drv.advance(3)
+    row = j.trades[-1]
+    assert 0.003 < row["fees_sol"] < 0.006                         # ~4% του 0,1 SOL
+    rows = list(_csv.DictReader(old.open(encoding="utf-8")))
+    assert rows[0]["fees_sol"] == "" and rows[-1]["fees_sol"] != "" and len(rows) == 2
+    text = build_report([dict(row, pnl_sol=-row["fees_sol"]) for _ in range(3)])
+    assert "Χρεώσεις" in text and "περίπου μηδέν" in text and "μ.ό." in text
+
+
+def test_new_strategy_set_loads():
+    from memebot.config import load_config
+    names = [s["name"] for s in load_config()["strategies"]]
+    assert {"light", "light_social", "light_patient", "light_quick", "baseline_all"} <= set(names)

@@ -72,7 +72,7 @@ def test_full_bot_against_fake_pumpportal(tmp_path, monkeypatch):
             port = server.sockets[0].getsockname()[1]
             cfg = base_config("baseline_all")
             cfg["feed"]["url"] = f"ws://127.0.0.1:{port}"
-            s = cfg["strategies"][-1]
+            s = next(v for v in cfg["strategies"] if v["name"] == "baseline_all")
             s["entry"] = {"min_age_s": 1, "max_age_s": 3}
             s["exit"]["stop_loss_pct"] = 20
             bot = asyncio.create_task(runner.run(cfg))

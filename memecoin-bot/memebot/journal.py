@@ -16,7 +16,7 @@ from pathlib import Path
 TRADE_FIELDS = ["closed_at", "variant", "mode", "status", "mint", "symbol", "name", "opened_at", "hold_s",
                 "cost_sol", "proceeds_sol", "pnl_sol", "pnl_pct", "peak_multiple", "entry_mcap_sol",
                 "exit_mcap_sol", "sells", "exit_reason", "entry_age_s", "uniq_buyers", "net_sol", "dev_pct",
-                "top_holder_pct", "twitter", "telegram"]
+                "top_holder_pct", "twitter", "telegram", "fees_sol"]
 TOKEN_FIELDS = ["mint", "symbol", "name", "creator", "created_at", "watched_s", "trades", "peak_mcap_sol",
                 "end_mcap_sol", "migrated", "age_s", "mcap_sol", "uniq_buyers", "buys", "sells", "net_sol",
                 "dev_buy_sol", "dev_pct", "dev_sold_pct", "top_holder_pct", "twitter", "telegram", "website"]
@@ -32,16 +32,36 @@ class Journal:
         self.trades: list[dict] = []          # και στη μνήμη, για backtest/σύνοψη
         self._tick_fh = None
         self._tick_day = ""
+        self._checked: set = set()
         if folder is not None:
             folder.mkdir(parents=True, exist_ok=True)
             if self.record_ticks:
                 (folder / "ticks").mkdir(exist_ok=True)
                 self._compress_old_ticks()
 
+    def _migrate(self, f: Path, fields: list[str]) -> None:
+        """Αν το αρχείο γράφτηκε από παλιότερη έκδοση με άλλες στήλες, το ξαναγράφει με τις νέες."""
+        if f in self._checked or not f.exists():
+            self._checked.add(f)
+            return
+        self._checked.add(f)
+        with f.open(encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            if reader.fieldnames == fields:
+                return
+            rows = list(reader)
+        tmp = f.with_suffix(".tmp")
+        with tmp.open("w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(rows)
+        tmp.replace(f)
+
     def _append(self, name: str, fields: list[str], row: dict) -> None:
         if self.dir is None:
             return
         f = self.dir / name
+        self._migrate(f, fields)
         new = not f.exists()
         with f.open("a", newline="", encoding="utf-8") as fh:
             w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")

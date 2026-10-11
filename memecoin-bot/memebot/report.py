@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import random
 import statistics
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 from .engine import local_time
@@ -38,6 +38,23 @@ def bootstrap_ci(values: list[float], n: int = 2000, seed: int = 7) -> tuple[flo
     return means[int(0.05 * n)], means[int(0.95 * n) - 1]
 
 
+def reasons(ok: list[dict], top: int = 6) -> list[tuple[str, int, float]]:
+    """(λόγος εξόδου, πλήθος, μέσο αποτέλεσμα %): πού κερδίζει και πού χάνει η στρατηγική."""
+    groups: dict[str, list[float]] = defaultdict(list)
+    for r in ok:
+        groups[r["exit_reason"]].append(_f(r["pnl_pct"]))
+    return [(k, len(v), statistics.fmean(v)) for k, v in sorted(groups.items(), key=lambda kv: -len(kv[1]))[:top]]
+
+
+def fee_split(rows: list[dict]) -> tuple[int, float, float] | None:
+    """(συναλλαγές με γνωστές χρεώσεις, χρεώσεις SOL, αποτέλεσμα πριν τις χρεώσεις SOL)."""
+    known = [r for r in rows if str(r.get("fees_sol", "")).strip() != ""]
+    if not known:
+        return None
+    fees = sum(_f(r["fees_sol"]) for r in known)
+    return len(known), fees, sum(_f(r["pnl_sol"]) for r in known) + fees
+
+
 def variant_stats(rows: list[dict]) -> dict:
     ok = [r for r in rows if r.get("status", "ok") == "ok"]
     failed = [r for r in rows if r.get("status") == "failed"]
@@ -60,7 +77,7 @@ def variant_stats(rows: list[dict]) -> dict:
         "max_dd_sol": dd, "best_pct": max(pct, default=0.0), "worst_pct": min(pct, default=0.0),
         "x2_share": 100 * sum(1 for r in ok if _f(r["peak_multiple"]) >= 2) / len(ok) if ok else 0.0,
         "avg_hold_s": statistics.fmean(_f(r["hold_s"]) for r in ok) if ok else 0.0,
-        "ci_lo": lo, "ci_hi": hi, "reasons": Counter(r["exit_reason"] for r in ok).most_common(6),
+        "ci_lo": lo, "ci_hi": hi, "reasons": reasons(ok),
     }
 
 
@@ -95,6 +112,20 @@ def plain_summary(stats: dict, by_var: dict, eur: float | None) -> list[str]:
                    f"Χρειάστηκε κεφάλαιο έως {cap:.2f} SOL" + (f" ≈ {cap * eur:.0f} €" if eur else "")
                    + f" ταυτόχρονα· η χειρότερη βουτιά στην πορεία ήταν {s['max_dd_sol']:.4f} SOL"
                    + (f" ≈ {s['max_dd_sol'] * eur:.2f} €." if eur else "."))
+        split = fee_split(rows)
+        if split:
+            n, fees, gross = split
+            if gross >= fees:
+                meaning = "Κερδίζει αρκετά ώστε να καλύπτει και τις χρεώσεις."
+            elif abs(gross) <= 0.15 * fees:
+                meaning = ("Πριν τις χρεώσεις βγαίνει περίπου μηδέν: χάνει όσο είναι οι χρεώσεις, "
+                           "η επιλογή coins δεν προσθέτει πλεονέκτημα.")
+            elif gross > 0:
+                meaning = "Πριν τις χρεώσεις κερδίζει, αλλά όχι αρκετά για να τις καλύψει."
+            else:
+                meaning = "Χάνει και πριν τις χρεώσεις: οι αγορές ή οι έξοδοι χειροτερεύουν το αποτέλεσμα."
+            out.append(f"  - Χρεώσεις (στις {n} συναλλαγές που τις έχουν καταγεγραμμένες): {fees:.4f} SOL. "
+                       f"Χωρίς αυτές το αποτέλεσμα θα ήταν {gross:+.4f} SOL. {meaning}")
     out += ["", "Στα ποσά έχουν ήδη αφαιρεθεί όλες οι χρεώσεις, η καθυστέρηση 1,5″ και το slippage. Στην πράξη "
             "μπορεί να βγουν λίγο χειρότερα (ανταγωνισμός από άλλα bots, συναλλαγές που αποτυγχάνουν όταν το δίκτυο "
             "είναι φορτωμένο). Πόσο ακριβώς, θα το μετρήσει η Φάση 2: εκεί τρέχουν δίπλα δίπλα η πραγματική και "
@@ -153,7 +184,7 @@ def build_report(rows: list[dict], title: str = "Αποτελέσματα", eur:
             out.append(f"- **{name}**: από {s['ci_lo']:+.5f} έως {s['ci_hi']:+.5f}")
     out += ["", "## Γιατί έκλεισαν οι θέσεις", ""]
     for name, s in stats.items():
-        out.append(f"- **{name}**: " + ", ".join(f"{k} {v}" for k, v in s["reasons"]))
+        out.append(f"- **{name}**: " + ", ".join(f"{k} {n} (μ.ό. {avg:+.0f}%)" for k, n, avg in s["reasons"]))
     out += ["", "## Ανά ημέρα (SOL)", ""]
     days = sorted({r["closed_at"][:10] for r in rows})
     out.append("| Ημέρα | " + " | ".join(stats) + " |")

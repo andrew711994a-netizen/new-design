@@ -68,6 +68,7 @@ class Position:
     pending: Order | None = None
     sell_attempt: int = 0
     next_try_t: float = 0.0
+    fees_sol: float | None = 0.0     # όλες οι χρεώσεις της θέσης (στο live δεν είναι γνωστές ακριβώς)
 
 
 @dataclass
@@ -413,7 +414,7 @@ class Engine:
                 self._failed_buy(o, tok, t, c.network_fee, "slippage")
                 return
             f = simulate_buy(tok.v_sol, tok.v_tok, o.amount_sol, c)
-            self._open(o, tok, t, f.avg_price, f.tokens, f.sol)
+            self._open(o, tok, t, f.avg_price, f.tokens, f.sol).fees_sol = f.fees_sol
             return
         pos = self.positions.get((o.variant, o.mint))
         if pos is None:
@@ -421,6 +422,7 @@ class Engine:
         pos.pending = None
         if not tok.migrated and p < o.decision_price * (1 - o.slippage_pct / 100):
             pos.cost_sol += c.network_fee
+            pos.fees_sol = (pos.fees_sol or 0.0) + c.network_fee
             pos.sell_attempt += 1
             pos.next_try_t = t + 1
             self.stats["αποτυχίες πώλησης (slippage)"] += 1
@@ -428,6 +430,7 @@ class Engine:
         tokens = pos.tokens if o.final else pos.tokens * o.frac
         haircut = c.migration_exit_haircut_pct if tok.migrated else 0.0
         f = simulate_sell(tok.v_sol, tok.v_tok, tokens, c, last=o.final, haircut_pct=haircut)
+        pos.fees_sol = (pos.fees_sol or 0.0) + f.fees_sol
         self._after_sell(pos, tok, t, o, f.sol, tokens)
 
     # ── κοινά για paper και live ──
@@ -458,7 +461,8 @@ class Engine:
         r["failed"] += 1
         r["pnl"] += -fee
         self.journal.trade(self._row(o.variant, o.live, tok.mint, tok.symbol, tok.name, o.t, t, fee, 0.0,
-                                     "αποτυχία αγοράς: " + why, "failed", o.feats, tok.mcap_sol, tok.mcap_sol, 0.0, 0))
+                                     "αποτυχία αγοράς: " + why, "failed", o.feats, tok.mcap_sol, tok.mcap_sol, 0.0, 0,
+                                     fee))
 
     def _close(self, pos: Position, tok: TokenState | None, t: float, reason: str, status: str = "ok") -> None:
         self.positions.pop((pos.variant, pos.mint), None)
@@ -472,7 +476,7 @@ class Engine:
         peak = pos.peak_price / pos.entry_price if pos.entry_price > 0 else 0.0
         self.journal.trade(self._row(pos.variant, pos.live, pos.mint, pos.symbol, pos.name, pos.opened_t, t,
                                      pos.cost_sol, pos.realized_sol, reason, status, pos.feats, pos.entry_mcap,
-                                     mcap, peak, pos.sells))
+                                     mcap, peak, pos.sells, pos.fees_sol))
         if pos.live:
             self.guard.on_close(pnl, t)
             icon = "✅" if pnl > 0 else "🔻"
@@ -482,7 +486,7 @@ class Engine:
 
     @staticmethod
     def _row(variant, live, mint, symbol, name, t0, t1, cost, proceeds, reason, status, feats, mcap0, mcap1, peak,
-             sells) -> dict:
+             sells, fees=None) -> dict:
         pnl = proceeds - cost
         return {"closed_at": local_time(t1), "variant": variant, "mode": "live" if live else "paper",
                 "status": status, "mint": mint, "symbol": symbol, "name": name, "opened_at": local_time(t0),
@@ -492,7 +496,8 @@ class Engine:
                 "sells": sells, "exit_reason": reason, "entry_age_s": feats.get("age_s", ""),
                 "uniq_buyers": feats.get("uniq_buyers", ""), "net_sol": feats.get("net_sol", ""),
                 "dev_pct": feats.get("dev_pct", ""), "top_holder_pct": feats.get("top_holder_pct", ""),
-                "twitter": feats.get("twitter", ""), "telegram": feats.get("telegram", "")}
+                "twitter": feats.get("twitter", ""), "telegram": feats.get("telegram", ""),
+                "fees_sol": "" if fees is None else round(fees, 6)}
 
     # ── πραγματικές εκτελέσεις: αποτελέσματα από τον live broker ──
     def on_live_result(self, o: Order, res: LiveResult, t: float) -> None:
@@ -517,7 +522,7 @@ class Engine:
             to_curve = (cost - c.network_fee - c.token_account_rent_sol) / (1 + c.portal_fee_pct / 100) \
                 / (1 + c.curve_fee_pct / 100)
             entry = max(to_curve, 1e-12) / res.token_delta
-            self._open(o, tok or TokenState(mint=o.mint, symbol=o.symbol), t, entry, res.token_delta, cost)
+            self._open(o, tok or TokenState(mint=o.mint, symbol=o.symbol), t, entry, res.token_delta, cost).fees_sol = None
             return
         pos = self.positions.get(key)
         if pos is None:
@@ -549,7 +554,7 @@ class Engine:
                            s["entry_price"], s["tokens"], s["cost_sol"], s.get("entry_mcap", 0.0),
                            s.get("feats", {}), peak_price=s.get("peak_price", s["entry_price"]),
                            realized_sol=s.get("realized_sol", 0.0), tp_done=s.get("tp_done", False),
-                           sells=s.get("sells", 0))
+                           sells=s.get("sells", 0), fees_sol=None)
             self.positions[(live.name, pos.mint)] = pos
             self.entered.add((live.name, pos.mint))
 
@@ -580,6 +585,7 @@ class Engine:
             if tok is None or tok.price <= 0:
                 continue
             f = simulate_sell(tok.v_sol, tok.v_tok, pos.tokens, self.costs, last=True)
+            pos.fees_sol = (pos.fees_sol or 0.0) + f.fees_sol
             pos.realized_sol += f.sol
             pos.tokens = 0.0
             self._close(pos, tok, t, "τερματισμός bot", status="shutdown")
