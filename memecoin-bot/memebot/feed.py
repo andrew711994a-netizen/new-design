@@ -37,10 +37,20 @@ def ssl_context(url: str):
     return ctx
 
 
+def is_rate_limited(e: Exception | None) -> bool:
+    """Ο server λέει «πάρα πολλές συνδέσεις / αιτήματα» (κωδικός 1013 ή HTTP 429)."""
+    text = str(e) if e is not None else ""
+    return "1013" in text or "429" in text or "Too many" in text
+
+
 def explain_connect_error(e: Exception, url: str) -> str:
     """Κατανοητή εξήγηση για αποτυχία σύνδεσης, αντί για σελίδες σφαλμάτων."""
     host = urlparse(url).hostname or url
     text = f"{e.__class__.__name__}: {e}"
+    if is_rate_limited(e):
+        return (f"Ο {host} απορρίπτει: πάρα πολλές συνδέσεις από αυτή τη σύνδεση internet. Κλείσε τα άλλα "
+                f"παράθυρα του bot (πρέπει να τρέχει μόνο ένα) και μην τρέχεις «Έλεγχο» όσο τρέχει το bot. "
+                f"Το bot περιμένει και ξαναδοκιμάζει μόνο του.")
     if "CERTIFICATE_VERIFY_FAILED" in text or "SSLCertVerification" in text:
         why = "έχει λήξει" if "expired" in text else "δεν είναι έγκυρο"
         return (f"Το πιστοποιητικό ασφαλείας του {host} {why}.\n"
@@ -103,9 +113,12 @@ class PumpPortalFeed:
 
         delay = 1.0
         while not stop.is_set():
+            err: Exception | None = None
+            connected_at = 0.0
             try:
                 async with websockets.connect(self.url, ssl=ssl_context(self.url), ping_interval=20, ping_timeout=30,
                                               max_size=2 ** 22, open_timeout=20, close_timeout=5) as ws:
+                    connected_at = time.time()
                     self.ws = ws
                     await ws.send(json.dumps({"method": "subscribeNewToken"}))
                     await ws.send(json.dumps({"method": "subscribeMigration"}))
@@ -115,7 +128,6 @@ class PumpPortalFeed:
                     self.connected.set()
                     self.log(f"Ροή: συνδέθηκε στο {urlparse(self.url).hostname}"
                              + (" (επανασύνδεση)" if self.reconnects else ""))
-                    delay = 1.0
                     async for raw in ws:
                         t = time.time()
                         self.last_msg_t = t
@@ -130,15 +142,24 @@ class PumpPortalFeed:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                self.log(f"Ροή: διακοπή σύνδεσης, νέα προσπάθεια σε {delay:.0f}″ · {explain_connect_error(e, self.url)}")
+                err = e
             finally:
                 self.ws = None
                 self.connected.clear()
             if stop.is_set():
                 break
+            # Γρήγορη επανασύνδεση μόνο αν η προηγούμενη σύνδεση κράτησε. Αν ο server μας κόβει αμέσως,
+            # η αναμονή μεγαλώνει, αλλιώς τον «σφυροκοπάμε» και μας μπλοκάρει (HTTP 429).
+            if connected_at and time.time() - connected_at > 60:
+                delay = 1.0
+            limited = is_rate_limited(err)
+            if limited:
+                delay = max(delay, 60.0)
+            why = explain_connect_error(err, self.url) if err is not None else "ο server έκλεισε τη σύνδεση"
+            self.log(f"Ροή: διακοπή σύνδεσης, νέα προσπάθεια σε {delay:.0f}″ · {why}")
             self.reconnects += 1
             try:
                 await asyncio.wait_for(stop.wait(), timeout=delay)
             except asyncio.TimeoutError:
                 pass
-            delay = min(delay * 2, 60)
+            delay = min(delay * 2, 300.0 if limited else 60.0)

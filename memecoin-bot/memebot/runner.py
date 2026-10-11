@@ -10,7 +10,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from .config import JOURNAL, ROOT
+from .config import JOURNAL, LOCK_DIR, ROOT
 from .curve import Costs, round_trip_cost_pct
 from .engine import Engine, local_time
 from .feed import PumpPortalFeed, explain_connect_error, is_pumpportal, ssl_context
@@ -41,8 +41,9 @@ def keep_awake() -> None:
 
 
 def single_instance(folder):
-    """Ένα bot τη φορά: ένα δεύτερο παράθυρο θα διπλασίαζε τις συναλλαγές και θα μπέρδευε το ημερολόγιο.
-    Το κλείδωμα λύνεται μόνο του όταν κλείσει το πρόγραμμα, ακόμα και απότομα."""
+    """Ένα bot τη φορά σε όλο τον υπολογιστή, από όποιον φάκελο κι αν ξεκινήσει: ένα δεύτερο θα διπλασίαζε
+    τις συνδέσεις (ο server τις απορρίπτει) και θα μπέρδευε το ημερολόγιο. Το κλείδωμα λύνεται μόνο του
+    όταν κλείσει το πρόγραμμα, ακόμα και απότομα."""
     folder.mkdir(parents=True, exist_ok=True)
     fh = open(folder / "bot.lock", "a+")
     try:
@@ -55,8 +56,8 @@ def single_instance(folder):
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         fh.close()
-        raise SystemExit("Το bot τρέχει ήδη σε άλλο παράθυρο. Από εδώ μπορείς να δεις αναφορές (επιλογή 3), "
-                         "όχι να ξεκινήσεις δεύτερο bot.")
+        raise SystemExit("Το bot τρέχει ήδη σε άλλο παράθυρο (ίσως από άλλον φάκελο). Από εδώ μπορείς να δεις "
+                         "αναφορές (επιλογή 3), όχι να ξεκινήσεις δεύτερο bot.")
     return fh
 
 
@@ -74,7 +75,7 @@ def feed_key(cfg: dict) -> str:
 
 async def run(cfg: dict) -> None:
     api_key = feed_key(cfg)
-    lock = single_instance(JOURNAL)          # μένει ανοιχτό όσο τρέχει το bot
+    lock = single_instance(LOCK_DIR)         # μένει ανοιχτό όσο τρέχει το bot
     keep_awake()
     try:                                  # VPS (systemd stop): ομαλό κλείσιμο, όπως με Ctrl+C
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
@@ -277,6 +278,10 @@ async def run(cfg: dict) -> None:
         log("Το bot σταμάτησε. Αναφορά: python -m memebot report")
 
 
+class _Skip(Exception):
+    pass
+
+
 async def check(cfg: dict) -> None:
     """Γρήγορος έλεγχος εγκατάστασης: ροή, κλειδί API, metadata, ειδοποιήσεις, (και πορτοφόλι στο live)."""
     import websockets
@@ -285,9 +290,20 @@ async def check(cfg: dict) -> None:
     print(f"Έκδοση bot: {__version__}")
     url = PumpPortalFeed(cfg["feed"]["url"], feed_key(cfg)).url
     ok = True
-    print(f"1) Σύνδεση στη ροή {cfg['feed']['url']} ...")
     creates, trades, errors = [], 0, []
     try:
+        single_instance(LOCK_DIR).close()
+        bot_running = False
+    except SystemExit:
+        bot_running = True
+    if bot_running:
+        print("1) Το bot τρέχει ήδη, οπότε δεν ανοίγω δεύτερη σύνδεση στη ροή (ο server θα την απέρριπτε).\n"
+              "   Για πλήρη έλεγχο σταμάτησε πρώτα το bot.")
+    else:
+        print(f"1) Σύνδεση στη ροή {cfg['feed']['url']} ...")
+    try:
+        if bot_running:
+            raise _Skip
         async with websockets.connect(url, ssl=ssl_context(url), open_timeout=20) as ws:
             await ws.send(json.dumps({"method": "subscribeNewToken"}))
             end = time.time() + 90
@@ -313,10 +329,13 @@ async def check(cfg: dict) -> None:
                 elif "errors" in msg or "error" in msg:
                     errors.append(msg)
                     print(f"   μήνυμα σφάλματος: {json.dumps(msg, ensure_ascii=False)[:200]}")
+    except _Skip:
+        pass
     except Exception as e:
         print("   ΑΠΟΤΥΧΙΑ: " + explain_connect_error(e, cfg["feed"]["url"]))
-    print(f"   νέα tokens: {'OK' if creates else 'ΟΧΙ'} · συναλλαγές: {'OK' if trades else 'ΟΧΙ'}")
-    ok &= bool(creates) and trades > 0 and not any(isinstance(e, list) for e in errors)
+    if not bot_running:
+        print(f"   νέα tokens: {'OK' if creates else 'ΟΧΙ'} · συναλλαγές: {'OK' if trades else 'ΟΧΙ'}")
+        ok &= bool(creates) and trades > 0 and not any(isinstance(e, list) for e in errors)
     if creates and cfg.get("metadata", {}).get("fetch", True):
         print("2) Metadata (social links)...")
         meta = await asyncio.to_thread(fetch_metadata, str(creates[0].get("uri", "")), 5.0)

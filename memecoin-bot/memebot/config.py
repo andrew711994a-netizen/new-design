@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 JOURNAL = ROOT / "journal"
+LOCK_DIR = Path.home() / ".memebot"   # κοινό για όλους τους φακέλους του bot στον υπολογιστή
 
 
 def load_env(path: Path = ROOT / ".env") -> None:

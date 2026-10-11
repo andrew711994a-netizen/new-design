@@ -148,3 +148,43 @@ def test_only_one_bot_at_a_time(tmp_path):
         runner.single_instance(tmp_path)
     first.close()
     runner.single_instance(tmp_path).close()            # μετά το κλείσιμο ξεκινά κανονικά
+
+
+def test_rate_limit_backs_off_instead_of_hammering():
+    from memebot.feed import PumpPortalFeed, explain_connect_error, is_rate_limited
+    attempts, logs = [], []
+
+    async def handler(ws):
+        attempts.append(1)
+        await ws.close(code=1013, reason="Too many connections from this IP")
+
+    async def main():
+        async with serve(handler, "127.0.0.1", 0) as server:
+            feed = PumpPortalFeed(f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}", "", logs.append)
+            stop = asyncio.Event()
+
+            async def nothing(*a):
+                pass
+
+            task = asyncio.create_task(feed.run(nothing, stop))
+            await asyncio.sleep(3)
+            stop.set()
+            await asyncio.wait_for(task, 5)
+
+    asyncio.run(main())
+    assert len(attempts) == 1                                   # όχι μία προσπάθεια κάθε δευτερόλεπτο
+    assert any("νέα προσπάθεια σε 60″" in m and "μόνο ένα" in m for m in logs)
+    assert is_rate_limited(Exception("server rejected WebSocket connection: HTTP 429"))
+    assert "μόνο ένα" in explain_connect_error(Exception("HTTP 429"), "wss://pumpdev.io/ws")
+
+
+def test_check_does_not_open_a_second_connection_while_bot_runs(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(runner, "LOCK_DIR", tmp_path)
+    monkeypatch.delenv("NTFY_TOPIC", raising=False)
+    held = runner.single_instance(tmp_path)                     # «τρέχει» το bot
+    cfg = base_config()
+    cfg["feed"]["url"] = "ws://127.0.0.1:9"
+    asyncio.run(runner.check(cfg))
+    held.close()
+    out = capsys.readouterr().out
+    assert "Το bot τρέχει ήδη" in out and "ΑΠΟΤΥΧΙΑ" not in out
