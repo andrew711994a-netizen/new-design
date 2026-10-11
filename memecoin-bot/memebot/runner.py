@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .config import JOURNAL, ROOT
 from .curve import Costs, round_trip_cost_pct
 from .engine import Engine, local_time
-from .feed import PumpPortalFeed, is_pumpportal
+from .feed import PumpPortalFeed, explain_connect_error, is_pumpportal, ssl_context
 from .journal import Journal
 from .metadata import fetch_metadata
 from .notify import notify
@@ -238,32 +238,35 @@ async def check(cfg: dict) -> None:
     url = PumpPortalFeed(cfg["feed"]["url"], feed_key(cfg)).url
     ok = True
     print(f"1) Σύνδεση στη ροή {cfg['feed']['url']} ...")
-    async with websockets.connect(url, open_timeout=20) as ws:
-        await ws.send(json.dumps({"method": "subscribeNewToken"}))
-        creates, trades, errors = [], 0, []
-        end = time.time() + 90
-        while time.time() < end and (len(creates) < 3 or trades < 1):
-            try:
-                raw = await asyncio.wait_for(ws.recv(), timeout=max(end - time.time(), 0.1))
-            except asyncio.TimeoutError:
-                break
-            msg = json.loads(raw)
-            kind = str(msg.get("txType", "")).lower()
-            if kind == "create" and len(creates) < 3:
-                creates.append(msg)
-                print(f"   νέο token: {msg.get('symbol')} · κεφ/ση {float(msg.get('marketCapSol', 0)):.1f} SOL")
-                await ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": [msg.get("mint")]}))
-            elif kind in ("buy", "sell"):
-                trades += 1
-                missing = [k for k in ("vSolInBondingCurve", "vTokensInBondingCurve", "traderPublicKey",
-                                       "solAmount", "tokenAmount") if k not in msg]
-                if missing and trades == 1:
-                    print(f"   ΠΡΟΣΟΧΗ: λείπουν πεδία από τις συναλλαγές: {', '.join(missing)} "
-                          f"(στείλε αυτό το μήνυμα στο Claude)")
-                    errors.append(missing)
-            elif "errors" in msg or "error" in msg:
-                errors.append(msg)
-                print(f"   μήνυμα σφάλματος: {json.dumps(msg, ensure_ascii=False)[:200]}")
+    creates, trades, errors = [], 0, []
+    try:
+        async with websockets.connect(url, ssl=ssl_context(url), open_timeout=20) as ws:
+            await ws.send(json.dumps({"method": "subscribeNewToken"}))
+            end = time.time() + 90
+            while time.time() < end and (len(creates) < 3 or trades < 1):
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=max(end - time.time(), 0.1))
+                except asyncio.TimeoutError:
+                    break
+                msg = json.loads(raw)
+                kind = str(msg.get("txType", "")).lower()
+                if kind == "create" and len(creates) < 3:
+                    creates.append(msg)
+                    print(f"   νέο token: {msg.get('symbol')} · κεφ/ση {float(msg.get('marketCapSol', 0)):.1f} SOL")
+                    await ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": [msg.get("mint")]}))
+                elif kind in ("buy", "sell"):
+                    trades += 1
+                    missing = [k for k in ("vSolInBondingCurve", "vTokensInBondingCurve", "traderPublicKey",
+                                           "solAmount", "tokenAmount") if k not in msg]
+                    if missing and trades == 1:
+                        print(f"   ΠΡΟΣΟΧΗ: λείπουν πεδία από τις συναλλαγές: {', '.join(missing)} "
+                              f"(στείλε αυτό το μήνυμα στο Claude)")
+                        errors.append(missing)
+                elif "errors" in msg or "error" in msg:
+                    errors.append(msg)
+                    print(f"   μήνυμα σφάλματος: {json.dumps(msg, ensure_ascii=False)[:200]}")
+    except Exception as e:
+        print("   ΑΠΟΤΥΧΙΑ: " + explain_connect_error(e, cfg["feed"]["url"]))
     print(f"   νέα tokens: {'OK' if creates else 'ΟΧΙ'} · συναλλαγές: {'OK' if trades else 'ΟΧΙ'}")
     ok &= bool(creates) and trades > 0 and not any(isinstance(e, list) for e in errors)
     if creates and cfg.get("metadata", {}).get("fetch", True):

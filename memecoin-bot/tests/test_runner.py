@@ -94,3 +94,44 @@ def test_full_bot_against_fake_pumpportal(tmp_path, monkeypatch):
     ticks = list((tmp_path / "ticks").glob("*.jsonl"))
     assert ticks and len(ticks[0].read_text().splitlines()) >= 13
     assert "PAPER" in (tmp_path / "status.md").read_text(encoding="utf-8")
+
+
+def test_tls_uses_certifi_and_errors_are_explained():
+    import ssl
+
+    from memebot.feed import explain_connect_error, ssl_context
+    assert isinstance(ssl_context("wss://pumpdev.io/ws"), ssl.SSLContext)
+    assert ssl_context("ws://127.0.0.1:1") is None
+    err = ssl.SSLCertVerificationError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+                                          "certificate has expired (_ssl.c:1144)")
+    msg = explain_connect_error(err, "wss://pumpdev.io/ws")
+    assert "pumpdev.io" in msg and "έχει λήξει" in msg and "ημερομηνία" in msg
+    assert "Δεν απαντά" in explain_connect_error(ConnectionRefusedError(111, "refused"), "wss://x.io/ws")
+
+
+def test_check_reports_ok_and_failure(monkeypatch, capsys):
+    mkt = Market()
+
+    async def handler(ws):
+        async for raw in ws:
+            msg = json.loads(raw)
+            if msg.get("method") == "subscribeNewToken":
+                for i in range(3):
+                    await ws.send(json.dumps(mkt.create(f"K{i}", dev=f"D{i}")))
+            elif msg.get("method") == "subscribeTokenTrade":
+                await ws.send(json.dumps(mkt.buy(msg["keys"][0], "b", 0.2)))
+
+    async def main():
+        async with serve(handler, "127.0.0.1", 0) as server:
+            cfg = base_config()
+            cfg["feed"]["url"] = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+            await runner.check(cfg)
+        cfg["feed"]["url"] = "ws://127.0.0.1:9"              # κανείς δεν ακούει εκεί
+        await runner.check(cfg)
+
+    monkeypatch.delenv("NTFY_TOPIC", raising=False)
+    asyncio.run(main())
+    out = capsys.readouterr().out
+    first, second = out.split("1) Σύνδεση", 2)[1:]
+    assert "νέα tokens: OK · συναλλαγές: OK" in first and "Όλα έτοιμα" in first
+    assert "ΑΠΟΤΥΧΙΑ: Δεν απαντά" in second and "Κάτι λείπει" in second

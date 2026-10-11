@@ -11,12 +11,48 @@ import asyncio
 import json
 import time
 from typing import Awaitable, Callable
+from urllib.parse import urlparse
 
 Handler = Callable[[str, dict, float], Awaitable[None]]
 
 
 def is_pumpportal(url: str) -> bool:
     return "pumpportal.fun" in url
+
+
+def ssl_context(url: str):
+    """Έλεγχος πιστοποιητικών με την ενημερωμένη λίστα του certifi (την ίδια με τον Firefox) και επιπλέον
+    με του συστήματος (π.χ. antivirus που ελέγχει τις συνδέσεις). Η λίστα των Windows μόνη της μπορεί να
+    έχει παλιές, ληγμένες εγγραφές· όταν υπάρχουν δύο, το OpenSSL προτιμά την έγκυρη."""
+    if not url.startswith("wss://"):
+        return None
+    import ssl
+
+    import certifi
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    try:
+        ctx.load_default_certs()
+    except (ssl.SSLError, OSError):
+        pass
+    return ctx
+
+
+def explain_connect_error(e: Exception, url: str) -> str:
+    """Κατανοητή εξήγηση για αποτυχία σύνδεσης, αντί για σελίδες σφαλμάτων."""
+    host = urlparse(url).hostname or url
+    text = f"{e.__class__.__name__}: {e}"
+    if "CERTIFICATE_VERIFY_FAILED" in text or "SSLCertVerification" in text:
+        why = "έχει λήξει" if "expired" in text else "δεν είναι έγκυρο"
+        return (f"Το πιστοποιητικό ασφαλείας του {host} {why}.\n"
+                f"   α) Έλεγξε ότι η ημερομηνία και η ώρα του υπολογιστή είναι σωστές.\n"
+                f"   β) Άνοιξε το https://{host} στον browser. Αν βγάζει προειδοποίηση ασφαλείας, το πρόβλημα "
+                f"είναι του {host}: περίμενε να το διορθώσουν ή χρησιμοποίησε το PumpPortal (README, βήμα 2).")
+    if "401" in text or "403" in text:
+        return f"Ο {host} αρνήθηκε τη σύνδεση ({text[:120]}). Έλεγξε το κλειδί API στο .env."
+    if isinstance(e, (OSError, TimeoutError)):
+        return (f"Δεν απαντά ο {host} ({text[:120]}). Έλεγξε τη σύνδεση στο internet· "
+                f"αν έχεις antivirus ή firewall, δες μήπως μπλοκάρει την Python.")
+    return text[:300]
 
 
 def classify(msg: dict) -> str:
@@ -68,8 +104,8 @@ class PumpPortalFeed:
         delay = 1.0
         while not stop.is_set():
             try:
-                async with websockets.connect(self.url, ping_interval=20, ping_timeout=30, max_size=2 ** 22,
-                                              open_timeout=20, close_timeout=5) as ws:
+                async with websockets.connect(self.url, ssl=ssl_context(self.url), ping_interval=20, ping_timeout=30,
+                                              max_size=2 ** 22, open_timeout=20, close_timeout=5) as ws:
                     self.ws = ws
                     await ws.send(json.dumps({"method": "subscribeNewToken"}))
                     await ws.send(json.dumps({"method": "subscribeMigration"}))
@@ -93,7 +129,7 @@ class PumpPortalFeed:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                self.log(f"Ροή: διακοπή σύνδεσης ({e.__class__.__name__}: {str(e)[:120]}), νέα προσπάθεια σε {delay:.0f}″")
+                self.log(f"Ροή: διακοπή σύνδεσης, νέα προσπάθεια σε {delay:.0f}″ · {explain_connect_error(e, self.url)}")
             finally:
                 self.ws = None
                 self.connected.clear()
