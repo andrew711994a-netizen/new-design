@@ -19,6 +19,7 @@ from .metadata import fetch_metadata
 from .notify import notify
 from .price import fmt_eur, sol_eur
 from .report import status_text
+from .trends import DEFAULT_SOURCES, fetch_trending
 
 
 def log(msg: str) -> None:
@@ -97,6 +98,9 @@ async def run(cfg: dict) -> None:
     journal = Journal(JOURNAL, record_ticks=bool(cfg.get("feed", {}).get("record_ticks", True)))
     engine = Engine(cfg, journal, live_variant=live_cfg.get("strategy") if live else None,
                     own_wallet=broker.pubkey if broker else "")
+    saved_creators = journal.load_json("creators.json", {}) or {}
+    engine.narrative.load_creators(saved_creators)
+    journal.tick("creators", saved_creators, time.time())        # για να ξαναπαίζεται ίδια η αγορά στο backtest
     if broker:
         saved = journal.load_json("live_positions.json", []) or []
         keep = []
@@ -196,6 +200,18 @@ async def run(cfg: dict) -> None:
         await apply_actions()
 
     price = {"eur": None, "t": 0.0}
+    vcfg = cfg.get("viral", {})
+    trend = {"t": 0.0, "n": 0, "every": float(vcfg.get("refresh_min", 15)) * 60}
+
+    async def refresh_trends() -> None:
+        found = await loop.run_in_executor(None, fetch_trending, vcfg.get("trend_sources") or DEFAULT_SOURCES)
+        if found:
+            t = time.time()
+            engine.on_trending(found, t)
+            journal.tick("trend", {"words": found}, t)
+            if trend["n"] == 0:
+                log(f"Trending θέματα: {len(found)} λέξεις (Google Trends, ειδήσεις, CoinGecko)")
+            trend["n"] = len(found)
 
     async def refresh_price() -> None:
         price["eur"] = await loop.run_in_executor(None, sol_eur) or price["eur"]
@@ -203,6 +219,9 @@ async def run(cfg: dict) -> None:
     def summary_body(t: float) -> str:
         up = int(t - started)
         head = f"Σε λειτουργία {up // 3600}ώ {up % 3600 // 60}′ · νέα coins {engine.stats['νέα tokens']}"
+        hot = engine.narrative.hot_themes()
+        if hot:
+            head += "\n🔥 Θέματα της ώρας: " + ", ".join(f"{w}×{n}" for w, n in hot)
         return head + "\n" + "\n".join(
             f"{r['variant']}: {r['closed']} συναλλαγές, {r['pnl_sol']:+.3f} SOL ({fmt_eur(r['pnl_sol'], price['eur'])})"
             for r in engine.summary())
@@ -228,6 +247,10 @@ async def run(cfg: dict) -> None:
             if t - price["t"] >= 600:
                 price["t"] = t
                 spawn(refresh_price())
+                journal.save_json("creators.json", dict(engine.narrative.creator_grads))
+            if engine.needs_viral and t - trend["t"] >= trend["every"]:
+                trend["t"] = t
+                spawn(refresh_trends())
             if t - last_status >= 60:
                 last_status = t
                 journal.flush()
@@ -235,7 +258,7 @@ async def run(cfg: dict) -> None:
                 journal.write_text("status.md", text)
                 s = engine.summary()
                 log(f"Παρακολουθούνται {engine.watching_count()} · νέα {engine.stats['νέα tokens']} · "
-                    + " · ".join(f"{r['variant']}: {r['closed']} κλεισ., {r['pnl_sol']:+.3f} SOL" for r in s))
+                    "συναλλαγές/SOL: " + " · ".join(f"{r['variant']} {r['closed']}/{r['pnl_sol']:+.2f}" for r in s))
             if not live and t - last_summary >= summary_every:
                 last_summary = t
                 loop.run_in_executor(None, notify, "Meme bot (εικονικά) · σύνοψη", summary_body(t))
@@ -268,6 +291,7 @@ async def run(cfg: dict) -> None:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 log("Δεν πρόλαβα να πουλήσω όλες τις θέσεις· θα τις συνεχίσω στην επόμενη εκκίνηση.")
         engine.shutdown_paper(time.time())
+        journal.save_json("creators.json", dict(engine.narrative.creator_grads))
         journal.write_text("status.md", status_text(engine, cfg, started, time.time(), False, price["eur"]))
         try:                                   # για να ξέρεις στο κινητό ότι σταμάτησε
             await asyncio.wait_for(asyncio.to_thread(notify, "Meme bot σταμάτησε", summary_body(time.time())), 12)

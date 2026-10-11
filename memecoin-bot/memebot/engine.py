@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 from .curve import Costs, simulate_buy, simulate_sell
 from .market import TokenState
+from .narrative import Narrative, words
 from .strategy import Variant
 
 ATHENS = ZoneInfo("Europe/Athens")
@@ -167,6 +168,8 @@ class Engine:
             self.variants[lv.name] = lv
         self.needs_meta = self.fetch_meta and (bool(self.pf.get("require_socials"))
                                                or any(v.needs_meta for v in self.variants.values()))
+        self.narrative = Narrative(cfg.get("viral"))
+        self.needs_viral = any(v.entry.min_viral_score > 0 for v in self.variants.values())
         self.tokens: dict[str, TokenState] = {}
         self.positions: dict[tuple, Position] = {}
         self.entered: set[tuple] = set()
@@ -190,6 +193,8 @@ class Engine:
         if not mint or mint in self.tokens:
             return
         tok = TokenState.from_create(ev, t)
+        tok.words = words(tok.name, tok.symbol)
+        self.narrative.on_create(mint, tok.creator, tok.words, t)     # όλα τα νέα coins μετράνε για τα «θέματα»
         ok, why = self._prefilter(tok, t)
         if not ok:
             self.stats[f"απόρριψη: {why}"] += 1
@@ -231,17 +236,27 @@ class Engine:
         if tok is None or not tok.watching:
             return
         tok.apply_trade(ev, t)
+        if str(ev.get("txType", "")).lower() == "buy":
+            try:
+                self.narrative.on_buy(tok.mint, float(ev.get("solAmount") or 0))
+            except (TypeError, ValueError):
+                pass
         self._step(tok, t)
 
     def on_migration(self, ev: dict, t: float) -> None:
         self.last_t = t
         self.stats["αποφοιτήσεις"] += 1
+        self.narrative.on_migration(str(ev.get("mint", "")))
         tok = self.tokens.get(str(ev.get("mint", "")))
         if tok is None:
             return
         tok.migrated = True
         self._fill_pending(tok, t, force=True)
         self._manage(tok, t)
+
+    def on_trending(self, trending: dict, t: float) -> None:
+        self.last_t = t
+        self.narrative.set_trending(trending)
 
     def on_tick(self, t: float) -> None:
         self.last_t = t
@@ -352,6 +367,8 @@ class Engine:
     def _consider_entries(self, tok: TokenState, t: float) -> None:
         if not tok.watching or tok.migrated:
             return
+        if self.needs_viral and tok.meta_done:
+            tok.viral_score, tok.viral_why = self.narrative.score(tok)
         for v in self.variants.values():
             key = (v.name, tok.mint)
             if key in self.entered or self.open_count(v.name) >= v.max_open:
@@ -497,7 +514,8 @@ class Engine:
                 "uniq_buyers": feats.get("uniq_buyers", ""), "net_sol": feats.get("net_sol", ""),
                 "dev_pct": feats.get("dev_pct", ""), "top_holder_pct": feats.get("top_holder_pct", ""),
                 "twitter": feats.get("twitter", ""), "telegram": feats.get("telegram", ""),
-                "fees_sol": "" if fees is None else round(fees, 6)}
+                "fees_sol": "" if fees is None else round(fees, 6),
+                "viral_score": feats.get("viral_score", ""), "viral_why": feats.get("viral_why", "")}
 
     # ── πραγματικές εκτελέσεις: αποτελέσματα από τον live broker ──
     def on_live_result(self, o: Order, res: LiveResult, t: float) -> None:

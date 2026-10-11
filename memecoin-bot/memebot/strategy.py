@@ -32,6 +32,7 @@ class EntryRules:
     min_mcap_sol: float = 0
     max_mcap_sol: float = INF
     max_top_holder_pct: float = 100
+    min_viral_score: float = 0          # 0 = δεν κοιτάει το viral score
 
 
 @dataclass
@@ -76,7 +77,7 @@ class Variant:
 
     @property
     def needs_meta(self) -> bool:
-        return self.entry.require_socials or self.entry.require_telegram
+        return self.entry.require_socials or self.entry.require_telegram or self.entry.min_viral_score > 0
 
     def could_still_enter(self, tok: TokenState, t: float) -> bool:
         e = self.entry
@@ -92,7 +93,7 @@ class Variant:
             return False, "αργά"
         if tok.migrated or tok.price <= 0:
             return False, "χωρίς τιμή"
-        if e.require_socials or e.require_telegram:
+        if e.require_socials or e.require_telegram or e.min_viral_score > 0:
             if not tok.meta_done:
                 return False, "αναμονή metadata"
             if e.require_telegram and not tok.socials()["telegram"]:
@@ -117,6 +118,8 @@ class Variant:
             return False, "κεφαλαιοποίηση εκτός εύρους"
         if tok.top_holder_pct(exclude) > e.max_top_holder_pct:
             return False, "συγκέντρωση σε ένα πορτοφόλι"
+        if tok.viral_score < e.min_viral_score:
+            return False, "χαμηλό viral score"
         return True, ""
 
     def exit_check(self, pos, tok: TokenState, t: float) -> tuple[float, str] | None:

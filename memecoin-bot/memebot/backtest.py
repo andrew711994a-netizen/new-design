@@ -41,6 +41,10 @@ def replay(cfg: dict, ticks_dir: Path, since: str = "", until: str = "") -> tupl
             engine.on_migration(ev, t)
         elif kind == "meta":
             engine.on_meta(ev.get("mint", ""), ev.get("meta"), t)
+        elif kind == "trend":
+            engine.on_trending(ev.get("words", {}), t)
+        elif kind == "creators":
+            engine.narrative.load_creators(ev)
         engine.take_actions()
     if last is not None:
         engine.shutdown_paper(t)

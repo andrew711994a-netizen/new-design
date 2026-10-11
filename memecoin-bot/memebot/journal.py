@@ -16,10 +16,11 @@ from pathlib import Path
 TRADE_FIELDS = ["closed_at", "variant", "mode", "status", "mint", "symbol", "name", "opened_at", "hold_s",
                 "cost_sol", "proceeds_sol", "pnl_sol", "pnl_pct", "peak_multiple", "entry_mcap_sol",
                 "exit_mcap_sol", "sells", "exit_reason", "entry_age_s", "uniq_buyers", "net_sol", "dev_pct",
-                "top_holder_pct", "twitter", "telegram", "fees_sol"]
+                "top_holder_pct", "twitter", "telegram", "fees_sol", "viral_score", "viral_why"]
 TOKEN_FIELDS = ["mint", "symbol", "name", "creator", "created_at", "watched_s", "trades", "peak_mcap_sol",
                 "end_mcap_sol", "migrated", "age_s", "mcap_sol", "uniq_buyers", "buys", "sells", "net_sol",
-                "dev_buy_sol", "dev_pct", "dev_sold_pct", "top_holder_pct", "twitter", "telegram", "website"]
+                "dev_buy_sol", "dev_pct", "dev_sold_pct", "top_holder_pct", "twitter", "telegram", "website",
+                "viral_score", "viral_why"]
 ORDER_FIELDS = ["time", "variant", "kind", "mint", "symbol", "amount", "ok", "sol_delta", "token_delta",
                 "signature", "error", "reason"]
 

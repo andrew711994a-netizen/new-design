@@ -216,6 +216,13 @@ def status_text(engine, cfg: dict, started: float, t: float, connected: bool, eu
     for r in engine.summary():
         lines.append(f"| {r['variant']} | {r['closed']} | {r['wins']} | {r['failed']} | {r['pnl_sol']:+.4f} | "
                      f"{fmt_eur(r['pnl_sol'], eur)} | {r['open']} | {r['unrealized_sol']:+.4f} |")
+    hot = engine.narrative.hot_themes(8)
+    if hot:
+        lines += ["", "🔥 Θέματα στο pump.fun την τελευταία ώρα (λέξη × πόσα νέα coins): "
+                  + ", ".join(f"{w}×{n}" for w, n in hot)]
+    if engine.narrative.trending:
+        lines += [f"Trending εκτός crypto τώρα: {len(engine.narrative.trending)} λέξεις, π.χ. "
+                  + ", ".join(sorted(engine.narrative.trending)[:12])]
     other = [(k, v) for k, v in st.most_common() if k.startswith(("απόρριψη", "αποτυχ", "live:", "χωρίς θέση", "ακύρωση"))]
     if other:
         lines += ["", "Λεπτομέρειες: " + " · ".join(f"{k}: {v}" for k, v in other)]

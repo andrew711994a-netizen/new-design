@@ -49,6 +49,9 @@ class TokenState:
     watching: bool = False
     watch_start_t: float = 0.0
     passed_prefilter: bool = False
+    words: set = field(default_factory=set)          # λέξεις ονόματος/συμβόλου (για θέματα και trends)
+    viral_score: int = 0
+    viral_why: str = ""
 
     # ── ενημέρωση από γεγονότα ──
     @classmethod
@@ -165,4 +168,5 @@ class TokenState:
             "dev_pct": round(self.dev_pct(), 2), "dev_sold_pct": round(self.dev_sold_pct(), 1),
             "top_holder_pct": round(self.top_holder_pct(), 2),
             "twitter": int(s["twitter"]), "telegram": int(s["telegram"]), "website": int(s["website"]),
+            "viral_score": self.viral_score, "viral_why": self.viral_why,
         }
