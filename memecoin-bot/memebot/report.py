@@ -112,16 +112,27 @@ def verdict(s: dict) -> str:
     return "χωρίς αποδεδειγμένο πλεονέκτημα (μπορεί να είναι τύχη)"
 
 
+def forced_close(r: dict) -> bool:
+    """Εικονική θέση που έκλεισε επειδή σταμάτησε το bot, όχι από τους κανόνες της στρατηγικής."""
+    return r.get("status") == "shutdown" or (r.get("mode") == "paper" and r.get("exit_reason") == "τερματισμός bot")
+
+
 def build_report(rows: list[dict], title: str = "Αποτελέσματα", eur: float | None = None) -> str:
+    forced = [r for r in rows if forced_close(r)]
+    rows = [r for r in rows if not forced_close(r)]
+    note = (f"*{len(forced)} εικονικές θέσεις έκλεισαν αναγκαστικά επειδή σταμάτησε το bot· δεν μετράνε στα "
+            f"αποτελέσματα. Όσο λιγότερο το σταματάς, τόσο καθαρότερη η μέτρηση.*\n" if forced else "")
     by_var: dict[str, list] = defaultdict(list)
     for r in rows:
         by_var[f"{r['variant']}" + (" (LIVE)" if r.get("mode") == "live" and "@live" not in r["variant"] else "")].append(r)
     if not rows:
-        return f"# {title}\n\nΔεν υπάρχουν ακόμα κλεισμένες συναλλαγές.\n"
+        return f"# {title}\n\nΔεν υπάρχουν ακόμα κλεισμένες συναλλαγές.\n" + (f"\n{note}" if note else "")
     first = min(r["opened_at"] for r in rows)
     last = max(r["closed_at"] for r in rows)
     stats = {name: variant_stats(by_var[name]) for name in sorted(by_var)}
     out = [f"# {title}", "", f"Περίοδος: {first} → {last} (ώρα Ελλάδας). Όλα τα ποσά μετά από ΟΛΕΣ τις χρεώσεις.", ""]
+    if note:
+        out += [note]
     out += plain_summary(stats, by_var, eur)
     out += ["## Λεπτομέρειες", "",
             "| Στρατηγική | Συναλλαγές | Κερδοφόρες | Μέσο % | Διάμεσο % | Σύνολο SOL | Σύνολο € | Απόδοση κεφ. | "

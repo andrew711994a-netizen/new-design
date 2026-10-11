@@ -282,3 +282,18 @@ def test_report_in_euros_and_peak_capital():
     assert "Ζημιά -0.0400 SOL ≈ -4.00 €" in text and "κεφάλαιο έως 0.20 SOL ≈ 20 €" in text
     assert "Σε απλά λόγια (τιμή SOL ≈ 100 €)" in text
     assert "≈" not in build_report(full, eur=None).split("## Λεπτομέρειες")[0]
+
+
+def test_forced_closes_are_left_out_of_the_report():
+    eng, j, mkt = make("momentum_early")
+    drv = Driver(eng)
+    drv.send(mkt.create("F"))
+    crowd(drv, mkt, "F", 10, 0.7)
+    drv.advance(3)
+    eng.shutdown_paper(drv.t)
+    assert j.trades[-1]["status"] == "shutdown" and eng.results["momentum_early"]["closed"] == 0
+    legacy = dict(j.trades[-1], status="ok")                    # παλιές γραμμές πριν από την έκδοση 5
+    text = build_report([j.trades[-1], legacy])
+    assert "Δεν υπάρχουν ακόμα κλεισμένες συναλλαγές" in text and "2 εικονικές θέσεις" in text
+    live_row = dict(legacy, mode="live", variant="momentum_early@live")   # οι πραγματικές πωλήσεις μετράνε πάντα
+    assert "1 αγορές" in build_report([live_row, legacy])

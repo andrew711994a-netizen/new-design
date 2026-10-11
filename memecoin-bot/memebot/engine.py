@@ -458,17 +458,18 @@ class Engine:
         self.journal.trade(self._row(o.variant, o.live, tok.mint, tok.symbol, tok.name, o.t, t, fee, 0.0,
                                      "αποτυχία αγοράς: " + why, "failed", o.feats, tok.mcap_sol, tok.mcap_sol, 0.0, 0))
 
-    def _close(self, pos: Position, tok: TokenState | None, t: float, reason: str) -> None:
+    def _close(self, pos: Position, tok: TokenState | None, t: float, reason: str, status: str = "ok") -> None:
         self.positions.pop((pos.variant, pos.mint), None)
         pnl = pos.realized_sol - pos.cost_sol
-        r = self.results.setdefault(pos.variant, Counter())
-        r["closed"] += 1
-        r["wins"] += pnl > 0
-        r["pnl"] += pnl
+        if status == "ok":
+            r = self.results.setdefault(pos.variant, Counter())
+            r["closed"] += 1
+            r["wins"] += pnl > 0
+            r["pnl"] += pnl
         mcap = tok.mcap_sol if tok else 0.0
         peak = pos.peak_price / pos.entry_price if pos.entry_price > 0 else 0.0
         self.journal.trade(self._row(pos.variant, pos.live, pos.mint, pos.symbol, pos.name, pos.opened_t, t,
-                                     pos.cost_sol, pos.realized_sol, reason, "ok", pos.feats, pos.entry_mcap,
+                                     pos.cost_sol, pos.realized_sol, reason, status, pos.feats, pos.entry_mcap,
                                      mcap, peak, pos.sells))
         if pos.live:
             self.guard.on_close(pnl, t)
@@ -569,7 +570,8 @@ class Engine:
 
     # ── τερματισμός και σύνοψη ──
     def shutdown_paper(self, t: float) -> None:
-        """Κλείνει τις εικονικές θέσεις στην τρέχουσα τιμή, ώστε το ημερολόγιο να είναι πλήρες."""
+        """Κλείνει τις εικονικές θέσεις στην τρέχουσα τιμή, ώστε το ημερολόγιο να είναι πλήρες. Γράφονται με
+        status «shutdown»: δεν τις έκλεισε η στρατηγική, οπότε η αναφορά δεν τις μετράει."""
         self.pending = [o for o in self.pending if o.live]
         for pos in [p for p in self.positions.values() if not p.live]:
             tok = self.tokens.get(pos.mint)
@@ -578,7 +580,7 @@ class Engine:
             f = simulate_sell(tok.v_sol, tok.v_tok, pos.tokens, self.costs, last=True)
             pos.realized_sol += f.sol
             pos.tokens = 0.0
-            self._close(pos, tok, t, "τερματισμός bot")
+            self._close(pos, tok, t, "τερματισμός bot", status="shutdown")
 
     def summary(self) -> list[dict]:
         out = []
