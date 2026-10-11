@@ -113,7 +113,8 @@ class PumpPortalFeed:
                         keys, self.keys = list(self.keys), set()
                         await self.subscribe(keys)
                     self.connected.set()
-                    self.log("Ροή: συνδέθηκε στο PumpPortal" + (" (επανασύνδεση)" if self.reconnects else ""))
+                    self.log(f"Ροή: συνδέθηκε στο {urlparse(self.url).hostname}"
+                             + (" (επανασύνδεση)" if self.reconnects else ""))
                     delay = 1.0
                     async for raw in ws:
                         t = time.time()

@@ -40,6 +40,26 @@ def keep_awake() -> None:
             pass
 
 
+def single_instance(folder):
+    """Ένα bot τη φορά: ένα δεύτερο παράθυρο θα διπλασίαζε τις συναλλαγές και θα μπέρδευε το ημερολόγιο.
+    Το κλείδωμα λύνεται μόνο του όταν κλείσει το πρόγραμμα, ακόμα και απότομα."""
+    folder.mkdir(parents=True, exist_ok=True)
+    fh = open(folder / "bot.lock", "a+")
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        raise SystemExit("Το bot τρέχει ήδη σε άλλο παράθυρο. Από εδώ μπορείς να δεις αναφορές (επιλογή 3), "
+                         "όχι να ξεκινήσεις δεύτερο bot.")
+    return fh
+
+
 def feed_key(cfg: dict) -> str:
     """Το κλειδί του PumpPortal στέλνεται μόνο στο PumpPortal, ποτέ σε άλλη ροή."""
     if not is_pumpportal(cfg["feed"]["url"]):
@@ -54,6 +74,7 @@ def feed_key(cfg: dict) -> str:
 
 async def run(cfg: dict) -> None:
     api_key = feed_key(cfg)
+    lock = single_instance(JOURNAL)          # μένει ανοιχτό όσο τρέχει το bot
     keep_awake()
     try:                                  # VPS (systemd stop): ομαλό κλείσιμο, όπως με Ctrl+C
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
@@ -240,6 +261,7 @@ async def run(cfg: dict) -> None:
             journal.save_json("live_positions.json", engine.live_state())
         journal.close()
         pool.shutdown(wait=False, cancel_futures=True)
+        lock.close()
         log("Το bot σταμάτησε. Αναφορά: python -m memebot report")
 
 

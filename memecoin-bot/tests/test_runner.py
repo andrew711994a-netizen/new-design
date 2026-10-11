@@ -135,3 +135,11 @@ def test_check_reports_ok_and_failure(monkeypatch, capsys):
     first, second = out.split("1) Σύνδεση", 2)[1:]
     assert "νέα tokens: OK · συναλλαγές: OK" in first and "Όλα έτοιμα" in first
     assert "ΑΠΟΤΥΧΙΑ: Δεν απαντά" in second and "Κάτι λείπει" in second
+
+
+def test_only_one_bot_at_a_time(tmp_path):
+    first = runner.single_instance(tmp_path)
+    with pytest.raises(SystemExit, match="τρέχει ήδη"):
+        runner.single_instance(tmp_path)
+    first.close()
+    runner.single_instance(tmp_path).close()            # μετά το κλείσιμο ξεκινά κανονικά
