@@ -80,10 +80,15 @@ def test_full_bot_against_fake_pumpportal(tmp_path, monkeypatch):
             bot.cancel()
             await asyncio.gather(bot, return_exceptions=True)
 
+    sent = []
     monkeypatch.setattr(runner, "JOURNAL", tmp_path)
+    monkeypatch.setattr(runner, "notify", lambda title, body, *a: sent.append((title, body)))
     monkeypatch.setenv("PUMPPORTAL_API_KEY", "TESTKEY")
-    monkeypatch.delenv("NTFY_TOPIC", raising=False)
     asyncio.run(main())
+
+    titles = [s[0] for s in sent]
+    assert "Meme bot ξεκίνησε (εικονικά)" in titles and "Meme bot σταμάτησε" in titles
+    assert "baseline_all: 1 συναλλαγές" in dict(sent)["Meme bot σταμάτησε"]
 
     methods = [m.get("method") for m in received]
     assert methods[:2] == ["subscribeNewToken", "subscribeMigration"]

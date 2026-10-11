@@ -172,7 +172,7 @@
   },
 
   "notify": {
-    "paper_summary_every_hours": 12,
+    "paper_summary_every_hours": 3,
     "live_trades": true
   }
 }

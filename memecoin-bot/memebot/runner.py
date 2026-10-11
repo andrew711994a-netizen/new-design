@@ -196,6 +196,13 @@ async def run(cfg: dict) -> None:
     async def refresh_price() -> None:
         price["eur"] = await loop.run_in_executor(None, sol_eur) or price["eur"]
 
+    def summary_body(t: float) -> str:
+        up = int(t - started)
+        head = f"Σε λειτουργία {up // 3600}ώ {up % 3600 // 60}′ · νέα coins {engine.stats['νέα tokens']}"
+        return head + "\n" + "\n".join(
+            f"{r['variant']}: {r['closed']} συναλλαγές, {r['pnl_sol']:+.3f} SOL ({fmt_eur(r['pnl_sol'], price['eur'])})"
+            for r in engine.summary())
+
     async def ticker() -> None:
         last_status = last_summary = time.time()
         summary_every = float(cfg.get("notify", {}).get("paper_summary_every_hours", 12)) * 3600
@@ -227,10 +234,7 @@ async def run(cfg: dict) -> None:
                     + " · ".join(f"{r['variant']}: {r['closed']} κλεισ., {r['pnl_sol']:+.3f} SOL" for r in s))
             if not live and t - last_summary >= summary_every:
                 last_summary = t
-                s = engine.summary()
-                body = "\n".join(f"{r['variant']}: {r['closed']} συναλλαγές, {r['pnl_sol']:+.3f} SOL "
-                                 f"({fmt_eur(r['pnl_sol'], price['eur'])})" for r in s)
-                loop.run_in_executor(None, notify, "Meme bot (εικονικά) · σύνοψη", body)
+                loop.run_in_executor(None, notify, "Meme bot (εικονικά) · σύνοψη", summary_body(t))
 
     rt = round_trip_cost_pct(float(live_cfg.get("trade_sol", 0.05)) if live else 0.1, costs)
     from . import __version__
@@ -240,6 +244,10 @@ async def run(cfg: dict) -> None:
     if live:
         loop.run_in_executor(None, notify, "Meme bot LIVE ξεκίνησε",
                              f"Στρατηγική {live_cfg.get('strategy')} · {live_cfg.get('trade_sol')} SOL ανά αγορά")
+    else:
+        hours = float(cfg.get("notify", {}).get("paper_summary_every_hours", 3))
+        loop.run_in_executor(None, notify, "Meme bot ξεκίνησε (εικονικά)",
+                             f"Σύνοψη αποτελεσμάτων εδώ κάθε {hours:g} ώρες.")
     try:
         await asyncio.gather(feed.run(handle, stop), ticker())
     except asyncio.CancelledError:
@@ -257,6 +265,10 @@ async def run(cfg: dict) -> None:
                 log("Δεν πρόλαβα να πουλήσω όλες τις θέσεις· θα τις συνεχίσω στην επόμενη εκκίνηση.")
         engine.shutdown_paper(time.time())
         journal.write_text("status.md", status_text(engine, cfg, started, time.time(), False, price["eur"]))
+        try:                                   # για να ξέρεις στο κινητό ότι σταμάτησε
+            await asyncio.wait_for(asyncio.to_thread(notify, "Meme bot σταμάτησε", summary_body(time.time())), 12)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass
         if broker:
             journal.save_json("live_positions.json", engine.live_state())
         journal.close()
