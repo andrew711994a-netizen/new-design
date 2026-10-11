@@ -15,6 +15,10 @@ from typing import Awaitable, Callable
 Handler = Callable[[str, dict, float], Awaitable[None]]
 
 
+def is_pumpportal(url: str) -> bool:
+    return "pumpportal.fun" in url
+
+
 def classify(msg: dict) -> str:
     """create / trade / migration / info / error."""
     tx = str(msg.get("txType", "")).lower()

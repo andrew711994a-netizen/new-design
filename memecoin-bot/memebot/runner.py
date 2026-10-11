@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .config import JOURNAL, ROOT
 from .curve import Costs, round_trip_cost_pct
 from .engine import Engine, local_time
-from .feed import PumpPortalFeed
+from .feed import PumpPortalFeed, is_pumpportal
 from .journal import Journal
 from .metadata import fetch_metadata
 from .notify import notify
@@ -39,17 +39,20 @@ def keep_awake() -> None:
             pass
 
 
-def require_api_key() -> str:
+def feed_key(cfg: dict) -> str:
+    """Το κλειδί του PumpPortal στέλνεται μόνο στο PumpPortal, ποτέ σε άλλη ροή."""
+    if not is_pumpportal(cfg["feed"]["url"]):
+        return ""
     key = os.environ.get("PUMPPORTAL_API_KEY", "").strip()
     if not key:
         raise SystemExit("Λείπει το PUMPPORTAL_API_KEY στο αρχείο .env.\n"
                          "Χωρίς αυτό το PumpPortal δίνει μόνο τα νέα tokens, όχι τις τιμές τους. "
-                         "Δες το README, βήμα 2.")
+                         "Δες το README, βήμα 2, ή τη δωρεάν ροή (FEED_URL).")
     return key
 
 
 async def run(cfg: dict) -> None:
-    api_key = require_api_key()
+    api_key = feed_key(cfg)
     keep_awake()
     try:                                  # VPS (systemd stop): ομαλό κλείσιμο, όπως με Ctrl+C
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
@@ -232,10 +235,9 @@ async def check(cfg: dict) -> None:
     """Γρήγορος έλεγχος εγκατάστασης: ροή, κλειδί API, metadata, ειδοποιήσεις, (και πορτοφόλι στο live)."""
     import websockets
 
-    api_key = require_api_key()
-    url = cfg["feed"]["url"] + "?api-key=" + api_key
+    url = PumpPortalFeed(cfg["feed"]["url"], feed_key(cfg)).url
     ok = True
-    print("1) Σύνδεση στο PumpPortal...")
+    print(f"1) Σύνδεση στη ροή {cfg['feed']['url']} ...")
     async with websockets.connect(url, open_timeout=20) as ws:
         await ws.send(json.dumps({"method": "subscribeNewToken"}))
         creates, trades, errors = [], 0, []
@@ -253,11 +255,17 @@ async def check(cfg: dict) -> None:
                 await ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": [msg.get("mint")]}))
             elif kind in ("buy", "sell"):
                 trades += 1
+                missing = [k for k in ("vSolInBondingCurve", "vTokensInBondingCurve", "traderPublicKey",
+                                       "solAmount", "tokenAmount") if k not in msg]
+                if missing and trades == 1:
+                    print(f"   ΠΡΟΣΟΧΗ: λείπουν πεδία από τις συναλλαγές: {', '.join(missing)} "
+                          f"(στείλε αυτό το μήνυμα στο Claude)")
+                    errors.append(missing)
             elif "errors" in msg or "error" in msg:
                 errors.append(msg)
                 print(f"   μήνυμα σφάλματος: {json.dumps(msg, ensure_ascii=False)[:200]}")
-    print(f"   νέα tokens: {'OK' if creates else 'ΟΧΙ'} · συναλλαγές (θέλει κλειδί API): {'OK' if trades else 'ΟΧΙ'}")
-    ok &= bool(creates) and trades > 0
+    print(f"   νέα tokens: {'OK' if creates else 'ΟΧΙ'} · συναλλαγές: {'OK' if trades else 'ΟΧΙ'}")
+    ok &= bool(creates) and trades > 0 and not any(isinstance(e, list) for e in errors)
     if creates and cfg.get("metadata", {}).get("fetch", True):
         print("2) Metadata (social links)...")
         meta = await asyncio.to_thread(fetch_metadata, str(creates[0].get("uri", "")), 5.0)

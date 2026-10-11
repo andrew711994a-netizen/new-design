@@ -14,6 +14,21 @@ from memebot.feed import classify  # noqa: E402
 from sim import Market, base_config  # noqa: E402
 
 
+def test_api_key_only_for_pumpportal(monkeypatch):
+    from memebot.config import load_config
+    from memebot.feed import PumpPortalFeed
+    monkeypatch.setenv("PUMPPORTAL_API_KEY", "K")
+    monkeypatch.delenv("FEED_URL", raising=False)
+    monkeypatch.delenv("MEMEBOT_MODE", raising=False)
+    cfg = load_config()
+    assert PumpPortalFeed(cfg["feed"]["url"], runner.feed_key(cfg)).url.endswith("/api/data?api-key=K")
+    assert cfg["costs"]["data_cost_sol_per_10k_trades"] > 0
+    monkeypatch.setenv("FEED_URL", "wss://pumpdev.io/ws")
+    cfg = load_config()
+    assert runner.feed_key(cfg) == "" and PumpPortalFeed(cfg["feed"]["url"], "").url == "wss://pumpdev.io/ws"
+    assert cfg["costs"]["data_cost_sol_per_10k_trades"] == 0 and cfg["feed"]["max_watching"] == 25
+
+
 def test_classify():
     assert classify({"txType": "create"}) == "create"
     assert classify({"txType": "buy"}) == "trade"
@@ -27,7 +42,7 @@ def test_full_bot_against_fake_pumpportal(tmp_path, monkeypatch):
     received = []
 
     async def handler(ws):
-        assert "api-key=TESTKEY" in ws.request.path
+        assert "api-key" not in ws.request.path       # το κλειδί του PumpPortal δεν πάει σε άλλη ροή
         await ws.send(json.dumps({"message": "Successfully subscribed to token creation events."}))
         subscribed = asyncio.Event()
 

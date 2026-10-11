@@ -6,6 +6,7 @@
     "sample_pct": 30,
     "max_data_sol_per_day": 0.05,
     "max_watching": 60,
+    "free_feed_max_watching": 25,
     "watch_seconds": 300,
     "drop_quiet_after_s": 45,
     "drop_quiet_below_net_sol": 1.0,

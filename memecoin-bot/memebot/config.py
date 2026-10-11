@@ -35,6 +35,14 @@ def load_config(path: Path | None = None) -> dict:
     local = ROOT / "config.local.json"
     if path is None and local.exists():
         cfg = deep_merge(cfg, json.loads(local.read_text(encoding="utf-8")))
+    feed_url = os.environ.get("FEED_URL", "").strip()
+    if feed_url:
+        cfg["feed"]["url"] = feed_url
+    if "pumpportal.fun" not in cfg["feed"]["url"]:
+        # Δωρεάν ροή (π.χ. PumpDev): χωρίς κόστος δεδομένων, αλλά με λιγότερες ταυτόχρονες εγγραφές
+        cfg["costs"]["data_cost_sol_per_10k_trades"] = 0.0
+        cfg["feed"]["max_watching"] = min(int(cfg["feed"].get("max_watching", 60)),
+                                          int(cfg["feed"].get("free_feed_max_watching", 25)))
     mode = os.environ.get("MEMEBOT_MODE", "").strip().lower()
     if mode:
         cfg["mode"] = mode
