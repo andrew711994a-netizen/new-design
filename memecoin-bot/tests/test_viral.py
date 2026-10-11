@@ -129,3 +129,18 @@ def test_ladder_takes_initials_out_then_locks_profit_then_trails():
     drv.advance(3)
     row = j.trades[-1]
     assert row["exit_reason"] == "trailing stop" and row["sells"] == 3 and row["pnl_sol"] > 0
+
+
+def test_report_splits_results_by_viral_score():
+    from memebot.report import build_report
+    rows = []
+    for i in range(40):
+        hot = i % 4 == 0
+        rows.append({"closed_at": "2026-10-12 10:00:00", "opened_at": "2026-10-12 09:59:00", "variant": "baseline_all",
+                     "mode": "paper", "status": "ok", "cost_sol": 0.1, "hold_s": 60, "exit_reason": "stop-loss",
+                     "pnl_sol": 0.05 if hot else -0.005, "pnl_pct": 50.0 if hot else -5.0,
+                     "peak_multiple": 5.5 if hot else 1.1, "viral_score": 45 if hot else 0})
+    text = build_report(rows)
+    assert "Βοηθάει το viral score;" in text
+    assert "| 45+ | 10 | +50.0% | 100% | 100% | 100% |" in text
+    assert "| 0 | 30 | -5.0% | 0% | 0% | 0% |" in text

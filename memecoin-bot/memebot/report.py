@@ -133,6 +133,36 @@ def plain_summary(stats: dict, by_var: dict, eur: float | None) -> list[str]:
     return out
 
 
+VIRAL_BUCKETS = [(0, 0, "0"), (1, 19, "1–19"), (20, 34, "20–34"), (35, 44, "35–44"), (45, 10_000, "45+")]
+
+
+def viral_table(rows: list[dict]) -> list[str]:
+    """Αποτέλεσμα ανά viral score. Προτιμά το baseline_all (αγοράζει τα πάντα, άρα δίκαιη σύγκριση)."""
+    scored = [r for r in rows if r.get("status", "ok") == "ok" and str(r.get("viral_score", "")).strip() != ""]
+    base = [r for r in scored if r["variant"] == "baseline_all"]
+    use, who = (base, "τα coins του baseline_all, που αγοράζει τα πάντα") if len(base) >= 30 else \
+        (scored, "όλες οι στρατηγικές μαζί")
+    if len(use) < 10:
+        return []
+    out = ["## Βοηθάει το viral score;", "",
+           f"Από {who} ({len(use)} συναλλαγές): πώς πήγαν ανάλογα με το viral score τους.", "",
+           "| Viral score | Συναλλαγές | Μέσο αποτέλεσμα | Κερδοφόρες | Έφτασαν 2× | Έφτασαν 5× |",
+           "|---|---:|---:|---:|---:|---:|"]
+    for lo, hi, label in VIRAL_BUCKETS:
+        b = [r for r in use if lo <= _f(r["viral_score"]) <= hi]
+        if not b:
+            continue
+        n = len(b)
+        out.append(f"| {label} | {n} | {statistics.fmean(_f(r['pnl_pct']) for r in b):+.1f}% | "
+                   f"{100 * sum(_f(r['pnl_sol']) > 0 for r in b) / n:.0f}% | "
+                   f"{100 * sum(_f(r['peak_multiple']) >= 2 for r in b) / n:.0f}% | "
+                   f"{100 * sum(_f(r['peak_multiple']) >= 5 for r in b) / n:.0f}% |")
+    out += ["", "Αν οι γραμμές με υψηλό score έχουν σαφώς καλύτερο αποτέλεσμα και περισσότερα 2×/5× από τις χαμηλές "
+            "(με αρκετές δεκάδες συναλλαγές η καθεμία), η ιδέα των viral coins έχει βάση. Αν είναι ίδιες, το όνομα "
+            "και τα social από μόνα τους δεν προβλέπουν τίποτα.", ""]
+    return out
+
+
 def verdict(s: dict) -> str:
     if s["trades"] < MIN_TRADES:
         return f"λίγες συναλλαγές (<{MIN_TRADES}): δεν βγαίνει συμπέρασμα ακόμα"
@@ -182,7 +212,8 @@ def build_report(rows: list[dict], title: str = "Αποτελέσματα", eur:
     for name, s in stats.items():
         if s["ci_lo"] == s["ci_lo"]:
             out.append(f"- **{name}**: από {s['ci_lo']:+.5f} έως {s['ci_hi']:+.5f}")
-    out += ["", "## Γιατί έκλεισαν οι θέσεις", ""]
+    out += [""] + viral_table(rows)
+    out += ["## Γιατί έκλεισαν οι θέσεις", ""]
     for name, s in stats.items():
         out.append(f"- **{name}**: " + ", ".join(f"{k} {n} (μ.ό. {avg:+.0f}%)" for k, n, avg in s["reasons"]))
     out += ["", "## Ανά ημέρα (SOL)", ""]
