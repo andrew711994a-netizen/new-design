@@ -48,7 +48,7 @@
   "strategies": [
     {
       "name": "viral_hunter",
-      "about": "Coins με θέμα της στιγμής ή κόσμο από πίσω (viral score ≥ 35) που έχουν και πραγματικούς αγοραστές· τα αφήνει να τρέξουν",
+      "about": "Coins με θέμα της στιγμής ή κόσμο από πίσω (viral score ≥ 35) που έχουν και πραγματικούς αγοραστές· στο 2× παίρνει πίσω τα αρχικά, στο 4× κλειδώνει κέρδος, τα υπόλοιπα τρέχουν",
       "enabled": true,
       "trade_sol": 0.1,
       "max_open": 5,
@@ -66,8 +66,6 @@
       },
       "exit": {
         "stop_loss_pct": 40,
-        "take_profit_pct": 150,
-        "take_profit_sell_frac": 0.3,
         "trail_activate_pct": 80,
         "trailing_stop_pct": 35,
         "time_stop_s": 900,
@@ -75,12 +73,22 @@
         "max_hold_s": 7200,
         "inactivity_s": 300,
         "dev_sell_exit_pct": 20,
-        "exit_mcap_sol": 380
+        "exit_mcap_sol": 380,
+        "take_profit_ladder": [
+          [
+            100,
+            0.5
+          ],
+          [
+            300,
+            0.5
+          ]
+        ]
       }
     },
     {
       "name": "viral_snipe",
-      "about": "Αγορά αμέσως μόλις βγει, μόνο αν το viral score είναι υψηλό (≥ 45)· τα αφήνει να τρέξουν",
+      "about": "Αγορά αμέσως μόλις βγει, μόνο αν το viral score είναι υψηλό (≥ 45)· στο 2× παίρνει πίσω τα αρχικά, στο 4× κλειδώνει κέρδος, τα υπόλοιπα τρέχουν",
       "enabled": true,
       "trade_sol": 0.1,
       "max_open": 5,
@@ -91,8 +99,6 @@
       },
       "exit": {
         "stop_loss_pct": 40,
-        "take_profit_pct": 150,
-        "take_profit_sell_frac": 0.3,
         "trail_activate_pct": 80,
         "trailing_stop_pct": 35,
         "time_stop_s": 900,
@@ -100,7 +106,17 @@
         "max_hold_s": 7200,
         "inactivity_s": 300,
         "dev_sell_exit_pct": 20,
-        "exit_mcap_sol": 380
+        "exit_mcap_sol": 380,
+        "take_profit_ladder": [
+          [
+            100,
+            0.5
+          ],
+          [
+            300,
+            0.5
+          ]
+        ]
       }
     },
     {

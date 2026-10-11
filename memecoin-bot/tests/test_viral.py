@@ -97,3 +97,35 @@ def test_replay_includes_trends(tmp_path):
     rows, _ = replay(cfg, tmp_path / "ticks")
     key = lambda r: (r["variant"], r["mint"], r["exit_reason"], r["viral_score"])
     assert [key(r) for r in rows] == [key(r) for r in j.trades] and j.trades
+
+
+def test_ladder_takes_initials_out_then_locks_profit_then_trails():
+    cfg = base_config("light")
+    light = next(v for v in cfg["strategies"] if v["name"] == "light")
+    light["exit"] = {"stop_loss_pct": 40, "take_profit_ladder": [[100, 0.5], [300, 0.5]], "trail_activate_pct": 80,
+                     "trailing_stop_pct": 35, "time_stop_s": 900, "time_stop_min_gain_pct": 0, "max_hold_s": 7200,
+                     "inactivity_s": 300, "exit_mcap_sol": 1e9, "exit_on_dev_sell": False}
+    j = Journal(None)
+    eng, mkt = Engine(cfg, j), Market()
+    drv = Driver(eng)
+    drv.send(mkt.create("MOON"))
+    for i in range(6):
+        drv.at(1, mkt.buy("MOON", f"a{i}", 0.6))
+    drv.advance(3)
+    pos = eng.positions[("light", "MOON")]
+    start = pos.tokens
+    k = 0
+    while mkt.price("MOON") < pos.entry_price * 2.2:          # ράλι ως το 2×
+        drv.at(1, mkt.buy("MOON", f"r{k}", 2.0)); k += 1
+    drv.advance(3)
+    assert pos.tp_level == 1 and abs(pos.tokens - start / 2) / start < 0.01
+    assert pos.realized_sol > 0.9 * pos.cost_sol                # τα αρχικά βγήκαν
+    while mkt.price("MOON") < pos.entry_price * 4.4:          # ως το 4×
+        drv.at(1, mkt.buy("MOON", f"r{k}", 3.0)); k += 1
+    drv.advance(3)
+    assert pos.tp_level == 2 and abs(pos.tokens - start / 4) / start < 0.01
+    for i in range(k):                                        # κατάρρευση → trailing stop για το υπόλοιπο
+        drv.at(1, mkt.sell("MOON", f"r{i}"))
+    drv.advance(3)
+    row = j.trades[-1]
+    assert row["exit_reason"] == "trailing stop" and row["sells"] == 3 and row["pnl_sol"] > 0

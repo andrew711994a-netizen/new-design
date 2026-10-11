@@ -49,6 +49,10 @@ class ExitRules:
     exit_on_dev_sell: bool = True
     dev_sell_exit_pct: float = 10       # % των tokens του δημιουργού που αν πουληθούν → έξοδος
     exit_mcap_sol: float = 350          # πούλα πριν την αποφοίτηση (~410 SOL)
+    # Κλιμακωτοί στόχοι [[κέρδος %, μερίδιο των tokens που απομένουν], ...]. Π.χ. [[100, 0.5], [300, 0.5]]:
+    # στο 2× πουλά τα μισά (βγαίνουν τα αρχικά), στο 4× τα μισά από όσα έμειναν, τα υπόλοιπα με trailing stop.
+    # Αν οριστεί, αντικαθιστά τα take_profit_pct / take_profit_sell_frac.
+    take_profit_ladder: list = field(default_factory=list)
 
 
 def _build(cls, d: dict | None):
@@ -138,7 +142,12 @@ class Variant:
                 return 1.0, "κοντά στην αποφοίτηση"
             if gain <= -x.stop_loss_pct:
                 return 1.0, "stop-loss"
-            if not pos.tp_done and gain >= x.take_profit_pct:
+            if x.take_profit_ladder:
+                if pos.tp_level < len(x.take_profit_ladder):
+                    level_gain, frac = x.take_profit_ladder[pos.tp_level]
+                    if gain >= float(level_gain):
+                        return min(max(float(frac), 0.0), 1.0) or 1.0, f"στόχος {pos.tp_level + 1} (+{level_gain:g}%)"
+            elif not pos.tp_done and gain >= x.take_profit_pct:
                 return min(max(x.take_profit_sell_frac, 0.0), 1.0) or 1.0, "στόχος"
             if (pos.tp_done or peak_gain >= x.trail_activate_pct) and p <= pos.peak_price * (1 - x.trailing_stop_pct / 100):
                 return 1.0, "trailing stop"

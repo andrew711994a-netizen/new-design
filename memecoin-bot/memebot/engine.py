@@ -65,6 +65,7 @@ class Position:
     peak_price: float = 0.0
     realized_sol: float = 0.0
     tp_done: bool = False
+    tp_level: int = 0                # πόσοι κλιμακωτοί στόχοι έχουν εκτελεστεί
     sells: int = 0
     pending: Order | None = None
     sell_attempt: int = 0
@@ -469,6 +470,7 @@ class Engine:
             self._close(pos, tok, t, o.reason)
         else:
             pos.tp_done = True
+            pos.tp_level += 1
             if pos.live:
                 self.actions.notes.append((f"💰 Μερική πώληση {pos.symbol}", f"+{sol:.4f} SOL · {o.reason}"))
 
@@ -572,6 +574,7 @@ class Engine:
                            s["entry_price"], s["tokens"], s["cost_sol"], s.get("entry_mcap", 0.0),
                            s.get("feats", {}), peak_price=s.get("peak_price", s["entry_price"]),
                            realized_sol=s.get("realized_sol", 0.0), tp_done=s.get("tp_done", False),
+                           tp_level=s.get("tp_level", 0),
                            sells=s.get("sells", 0), fees_sol=None)
             self.positions[(live.name, pos.mint)] = pos
             self.entered.add((live.name, pos.mint))
@@ -590,7 +593,8 @@ class Engine:
         return [{"mint": p.mint, "symbol": p.symbol, "name": p.name, "opened_t": p.opened_t,
                  "entry_price": p.entry_price, "tokens": p.tokens, "cost_sol": p.cost_sol,
                  "entry_mcap": p.entry_mcap, "feats": p.feats, "peak_price": p.peak_price,
-                 "realized_sol": p.realized_sol, "tp_done": p.tp_done, "sells": p.sells}
+                 "realized_sol": p.realized_sol, "tp_done": p.tp_done, "tp_level": p.tp_level,
+                 "sells": p.sells}
                 for p in self.positions.values() if p.live]
 
     # ── τερματισμός και σύνοψη ──
